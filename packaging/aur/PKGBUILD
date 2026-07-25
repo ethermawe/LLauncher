@@ -31,23 +31,19 @@ build() {
     cd "LLauncher-${pkgver}"
     
     export RUSTUP_TOOLCHAIN=stable
-    # Build only the binary without bundling .deb or AppImage
-    yarn tauri build -b none
+    # We must run the deb bundler because Tauri uses it to evaluate the
+    # Handlebars templates in llauncher.desktop (like {{exec}} and {{icon}})
+    # and to properly scale/export the icons.
+    yarn tauri build --bundles deb
 }
 
 package() {
     cd "LLauncher-${pkgver}"
     
-    # Install binary
-    install -Dm755 "src-tauri/target/release/llauncher" "${pkgdir}/usr/bin/llauncher"
+    local _deb="src-tauri/target/release/bundle/deb/LLauncher_${pkgver}_amd64.deb"
     
-    # Install desktop file
-    install -Dm644 "src-tauri/llauncher.desktop" "${pkgdir}/usr/share/applications/llauncher.desktop"
-    
-    # Install icons
-    install -Dm644 "src-tauri/icons/32x32.png" "${pkgdir}/usr/share/icons/hicolor/32x32/apps/llauncher.png"
-    install -Dm644 "src-tauri/icons/64x64.png" "${pkgdir}/usr/share/icons/hicolor/64x64/apps/llauncher.png"
-    install -Dm644 "src-tauri/icons/128x128.png" "${pkgdir}/usr/share/icons/hicolor/128x128/apps/llauncher.png"
-    install -Dm644 "src-tauri/icons/128x128@2x.png" "${pkgdir}/usr/share/icons/hicolor/256x256/apps/llauncher.png"
-    install -Dm644 "src-tauri/icons/icon.png" "${pkgdir}/usr/share/icons/hicolor/512x512/apps/llauncher.png"
+    # Extract the generated folder structure from the deb package.
+    # This is the cleanest way to get the evaluated desktop file and icons.
+    bsdtar -xf "$_deb" -C "$srcdir" data.tar.gz
+    bsdtar -xf "$srcdir/data.tar.gz" -C "$pkgdir"
 }
