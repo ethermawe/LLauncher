@@ -24,7 +24,7 @@ prepare() {
     
     # Download dependencies
     export RUSTUP_TOOLCHAIN=stable
-    cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+    cargo fetch --manifest-path src-tauri/Cargo.toml --locked --target "$(rustc -vV | sed -n 's/host: //p')"
     yarn install
 }
 
