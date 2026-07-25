@@ -1,4 +1,5 @@
-# Maintainer: ethermawe <https://github.com/ethermawe>
+# Original maintainer: AugustLigh <https://github.com/AugustLigh>
+# Fork maintainer: ethermawe <https://github.com/ethermawe>
 pkgname=llauncher-bin
 pkgver=0.3.0
 pkgrel=1
