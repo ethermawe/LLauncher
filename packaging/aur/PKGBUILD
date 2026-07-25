@@ -1,23 +1,46 @@
 # Maintainer: AugustLigh <https://github.com/AugustLigh>
-pkgname=llauncher-bin
-pkgver=0.2.4
+pkgname=llauncher
+pkgver=0.3.0
 pkgrel=1
 pkgdesc="Native Linux launcher for Arknights: Endfield"
 arch=('x86_64')
 url="https://github.com/AugustLigh/LLauncher"
 license=('MIT')
-depends=('webkit2gtk-4.1' 'gtk3' 'glib-networking' 'libayatana-appindicator' 'hicolor-icon-theme')
-optdepends=('gamemode: CPU governor optimizations while gaming'
-            'mangohud: FPS / frametime overlay'
-            'gamescope: micro-compositor with FSR upscaling, FPS cap and HDR')
+depends=('webkit2gtk-4.1' 'gtk3' 'glib2' 'libsoup3' 'openssl' 'glib-networking' 'libayatana-appindicator' 'hicolor-icon-theme')
+makedepends=('cargo' 'yarn' 'nodejs' 'base-devel')
+optdepends=(
+  'gamemode: CPU governor optimizations while gaming'
+  'mangohud: FPS / frametime overlay'
+  'gamescope: micro-compositor with FSR upscaling, FPS cap and HDR'
+)
 provides=('llauncher')
-conflicts=('llauncher')
-options=('!strip')
-source=("${pkgname}-${pkgver}.deb::${url}/releases/download/${pkgver}/LLauncher_${pkgver}_amd64.deb")
-sha256sums=('e15c5c188f7b5a8795e9be3f634f885b564993614b02a9562fa534924b105e61')
-noextract=("${pkgname}-${pkgver}.deb")
+conflicts=('llauncher-bin' 'llauncher-git')
+source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/${pkgver}.tar.gz")
+sha256sums=('SKIP') # Update this with the real hash after releasing
+
+prepare() {
+    cd "LLauncher-${pkgver}"
+    
+    # Download dependencies
+    export RUSTUP_TOOLCHAIN=stable
+    cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+    yarn install
+}
+
+build() {
+    cd "LLauncher-${pkgver}"
+    
+    export RUSTUP_TOOLCHAIN=stable
+    yarn tauri build --bundles deb
+}
 
 package() {
-    bsdtar -xf "${srcdir}/${pkgname}-${pkgver}.deb" -C "${srcdir}" data.tar.gz
-    bsdtar -xf "${srcdir}/data.tar.gz" -C "${pkgdir}"
+    cd "LLauncher-${pkgver}"
+    
+    # Tauri natively generates a correctly structured .deb package.
+    # We extract it to populate the Arch Linux package directory.
+    local _deb="src-tauri/target/release/bundle/deb/LLauncher_${pkgver}_amd64.deb"
+    
+    bsdtar -xf "$_deb" -C "$srcdir" data.tar.gz
+    bsdtar -xf "$srcdir/data.tar.gz" -C "$pkgdir"
 }
