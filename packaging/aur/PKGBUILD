@@ -1,7 +1,7 @@
 # Original maintainer: AugustLigh <https://github.com/AugustLigh>
 # Fork maintainer: etherawe <https://github.com/ethermawe>
 pkgname=llauncher
-pkgver=0.3.0
+pkgver=0.3.1
 pkgrel=1
 pkgdesc="Native Linux launcher for Arknights: Endfield"
 arch=('x86_64')
@@ -17,7 +17,7 @@ optdepends=(
 provides=('llauncher')
 conflicts=('llauncher-bin' 'llauncher-git')
 source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/${pkgver}.tar.gz")
-sha256sums=('SKIP') # Update this with the real hash after releasing
+sha256sums=('SKIP')
 
 prepare() {
     cd "LLauncher-${pkgver}"
@@ -42,9 +42,7 @@ package() {
     cd "LLauncher-${pkgver}"
     
     local _deb="src-tauri/target/release/bundle/deb/LLauncher_${pkgver}_amd64.deb"
-    
-    # Extract the generated folder structure from the deb package.
-    # This is the cleanest way to get the evaluated desktop file and icons.
+
     bsdtar -xf "$_deb" -C "$srcdir" data.tar.gz
     bsdtar -xf "$srcdir/data.tar.gz" -C "$pkgdir"
 }

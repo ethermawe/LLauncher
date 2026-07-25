@@ -1,7 +1,7 @@
 # Original maintainer: AugustLigh <https://github.com/AugustLigh>
 # Fork maintainer: ethermawe <https://github.com/ethermawe>
 pkgname=llauncher-bin
-pkgver=0.3.0
+pkgver=0.3.1
 pkgrel=1
 pkgdesc="Native Linux launcher for Arknights: Endfield"
 arch=('x86_64')

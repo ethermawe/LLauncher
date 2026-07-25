@@ -135,7 +135,6 @@ pub async fn start_download(
                 0
             } else {
                 history.push_back((now, total_bytes));
-                // Keep exactly 3 seconds of history for a stable speed average
                 while history.front().map_or(false, |&(t, _)| now.duration_since(t).as_secs_f64() > 3.0) {
                     history.pop_front();
                 }
