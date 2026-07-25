@@ -1,10 +1,11 @@
-# Maintainer: AugustLigh <https://github.com/AugustLigh>
+# Original maintainer: ethermawe <https://github.com/ethermawe>
+# Fork maintainer: etherawe <https://github.com/ethermawe>
 pkgname=llauncher
 pkgver=0.3.0
 pkgrel=1
 pkgdesc="Native Linux launcher for Arknights: Endfield"
 arch=('x86_64')
-url="https://github.com/AugustLigh/LLauncher"
+url="https://github.com/ethermawe/LLauncher"
 license=('MIT')
 depends=('webkit2gtk-4.1' 'gtk3' 'glib2' 'libsoup3' 'openssl' 'glib-networking' 'libayatana-appindicator' 'hicolor-icon-theme')
 makedepends=('cargo' 'yarn' 'nodejs' 'base-devel')
