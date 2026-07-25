@@ -3,6 +3,12 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use tauri::Emitter;
 
+pub struct FileProgress {
+    pub bytes: AtomicU64,
+    pub active: AtomicBool,
+    pub verifying: AtomicBool,
+}
+
 use crate::api::types::{DownloadComplete, DownloadError, ResumeInfo};
 use crate::error::AppError;
 
@@ -87,8 +93,81 @@ pub async fn start_download(
         }
     }
 
-    let agg_downloaded = Arc::new(AtomicU64::new(0));
-    let global_start = std::time::Instant::now();
+    let file_progress: Arc<Vec<Arc<FileProgress>>> = Arc::new(
+        (0..total_files).map(|_| Arc::new(FileProgress {
+            bytes: AtomicU64::new(0),
+            active: AtomicBool::new(false),
+            verifying: AtomicBool::new(false),
+        })).collect()
+    );
+
+    let monitor_active = download_active.clone();
+    let monitor_progress = file_progress.clone();
+    let monitor_app = app.clone();
+    let packs_clone = packs.clone();
+    let ts = total_size;
+
+    tokio::spawn(async move {
+        let mut history: std::collections::VecDeque<(std::time::Instant, u64)> = std::collections::VecDeque::new();
+        
+        while monitor_active.load(Ordering::SeqCst) {
+            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+            
+            let mut total_bytes = 0;
+            let mut active_file_idx = None;
+            let mut any_verifying = false;
+            
+            for (i, fp) in monitor_progress.iter().enumerate() {
+                total_bytes += fp.bytes.load(Ordering::Relaxed);
+                if fp.active.load(Ordering::Relaxed) {
+                    if active_file_idx.is_none() {
+                        active_file_idx = Some(i);
+                    }
+                    if fp.verifying.load(Ordering::Relaxed) {
+                        any_verifying = true;
+                    }
+                }
+            }
+            
+            let now = std::time::Instant::now();
+            let speed_bps = if any_verifying {
+                history.clear();
+                0
+            } else {
+                history.push_back((now, total_bytes));
+                // Keep exactly 3 seconds of history for a stable speed average
+                while history.front().map_or(false, |&(t, _)| now.duration_since(t).as_secs_f64() > 3.0) {
+                    history.pop_front();
+                }
+                
+                if let Some(&(old_t, old_bytes)) = history.front() {
+                    let dt = now.duration_since(old_t).as_secs_f64();
+                    if dt > 0.5 {
+                        (total_bytes.saturating_sub(old_bytes) as f64 / dt) as u64
+                    } else {
+                        0
+                    }
+                } else {
+                    0
+                }
+            };
+            
+            if let Some(idx) = active_file_idx {
+                let file_name = packs_clone[idx].url.split('/').last().unwrap_or("unknown").to_string();
+                monitor_app.emit(
+                    if any_verifying { "download://verify-progress" } else { "download://progress" },
+                    crate::api::types::DownloadProgress {
+                        file_index: idx,
+                        total_files,
+                        file_name,
+                        bytes_downloaded: total_bytes,
+                        bytes_total: ts,
+                        speed_bps,
+                    }
+                ).ok();
+            }
+        }
+    });
 
     let per_worker_limit = if speed_limit > 0 {
         (speed_limit / max_concurrent as u64).max(1024)
@@ -117,17 +196,33 @@ pub async fn start_download(
         let file_name = pack.url.split('/').last().unwrap_or("unknown").to_string();
         let dest = download_path.join(&file_name);
         let active2 = download_active.clone();
-        let agg2 = agg_downloaded.clone();
-        let start = global_start;
-        let ts = total_size;
+        let fp2 = file_progress[i].clone();
 
         let handle = tokio::spawn(async move {
             let _permit = permit;
-            crate::download::worker::download_file(
-                &app2, &client2, &pack2, &dest, i, total_files, &active2, start, &agg2, ts,
-                per_worker_limit,
-            )
-            .await
+            let mut retries = 0;
+            loop {
+                let res = crate::download::worker::download_file(
+                    &app2, &client2, &pack2, &dest, i, total_files, &active2, &fp2, per_worker_limit,
+                ).await;
+                
+                match res {
+                    Ok(()) => break Ok(()),
+                    Err(e) => {
+                        if !active2.load(Ordering::SeqCst) {
+                            break Err(AppError::Cancelled);
+                        }
+                        if matches!(e, AppError::Http(_) | AppError::Io(_)) {
+                            if retries < 3 {
+                                retries += 1;
+                                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                                continue;
+                            }
+                        }
+                        break Err(e);
+                    }
+                }
+            }
         });
 
         handles.push(handle);

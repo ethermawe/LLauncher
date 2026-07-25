@@ -1,13 +1,13 @@
 use futures_util::StreamExt;
 use md5::{Digest, Md5};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::Emitter;
 use tokio::io::{AsyncWriteExt, BufWriter};
 
-use crate::api::types::{DownloadProgress, PackFile};
+use crate::api::types::PackFile;
 use crate::error::AppError;
 
 pub async fn download_file(
@@ -18,9 +18,7 @@ pub async fn download_file(
     file_index: usize,
     total_files: usize,
     cancel_flag: &Arc<AtomicBool>,
-    global_start: std::time::Instant,
-    agg_downloaded: &Arc<AtomicU64>,
-    agg_total: u64,
+    progress: &Arc<crate::download::manager::FileProgress>,
     speed_limit: u64,
 ) -> Result<(), AppError> {
     let file_name = pack
@@ -33,21 +31,22 @@ pub async fn download_file(
     let expected_size: u64 = pack.package_size.parse().unwrap_or(0);
     let existing_size = std::fs::metadata(dest).map(|m| m.len()).unwrap_or(0);
 
-    // How many bytes of an interrupted download we can keep (resume point),
-    // and the MD5 state covering them.
     let mut resume_from: u64 = 0;
     let mut hasher = Md5::new();
 
+    struct ActiveGuard<'a> { progress: &'a Arc<crate::download::manager::FileProgress> }
+    impl<'a> Drop for ActiveGuard<'a> { fn drop(&mut self) { self.progress.active.store(false, Ordering::Relaxed); } }
+    let _guard = ActiveGuard { progress };
+    progress.active.store(true, Ordering::Relaxed);
+
     if existing_size > 0 && (expected_size == 0 || existing_size >= expected_size) {
+        progress.verifying.store(true, Ordering::Relaxed);
         let dest_owned = dest.to_path_buf();
         let expected_md5 = pack.md5.clone();
         let cancel2 = cancel_flag.clone();
-        let agg2 = agg_downloaded.clone();
-        let app2 = app.clone();
-        let fn2 = file_name.clone();
-
+        let prog2 = progress.clone();
+        
         let verify_result = tokio::task::spawn_blocking(move || {
-            let mut last_emit = std::time::Instant::now();
             let mut verified_local: u64 = 0;
             let is_valid = crate::download::verify::verify_md5_with_progress(
                 &dest_owned,
@@ -57,126 +56,48 @@ pub async fn download_file(
                         return Err(AppError::Cancelled);
                     }
                     verified_local += n;
-                    agg2.fetch_add(n, Ordering::Relaxed);
-                    if last_emit.elapsed().as_millis() >= 150 {
-                        let total_dl = agg2.load(Ordering::Relaxed);
-                        let elapsed = global_start.elapsed().as_secs_f64();
-                        let speed = if elapsed > 0.1 {
-                            (total_dl as f64 / elapsed) as u64
-                        } else {
-                            0
-                        };
-                        app2.emit(
-                            "download://verify-progress",
-                            DownloadProgress {
-                                file_index,
-                                total_files,
-                                file_name: fn2.clone(),
-                                bytes_downloaded: total_dl,
-                                bytes_total: agg_total,
-                                speed_bps: speed,
-                            },
-                        )
-                        .ok();
-                        last_emit = std::time::Instant::now();
-                    }
+                    prog2.bytes.store(verified_local, Ordering::Relaxed);
                     Ok(())
                 },
             )?;
             Ok::<(bool, u64), AppError>((is_valid, verified_local))
-        })
-        .await
-        .map_err(|e| AppError::Api(format!("verify task panicked: {}", e)))??;
+        }).await.map_err(|e| AppError::Api(format!("verify task panicked: {}", e)))??;
 
-        let (is_valid, verified_local) = verify_result;
+        let (is_valid, _verified_local) = verify_result;
 
         if is_valid {
-            let total_dl = agg_downloaded.load(Ordering::Relaxed);
-            let elapsed = global_start.elapsed().as_secs_f64();
-            let speed = if elapsed > 0.1 {
-                (total_dl as f64 / elapsed) as u64
-            } else {
-                0
-            };
-            app.emit(
-                "download://verify-progress",
-                DownloadProgress {
-                    file_index,
-                    total_files,
-                    file_name: file_name.clone(),
-                    bytes_downloaded: total_dl,
-                    bytes_total: agg_total,
-                    speed_bps: speed,
-                },
-            )
-            .ok();
-            app.emit(
-                "download://file-complete",
-                crate::api::types::DownloadFileComplete {
-                    file_index,
-                    total_files,
-                    file_name,
-                },
-            )
-            .ok();
+            progress.bytes.store(expected_size, Ordering::Relaxed);
+            progress.verifying.store(false, Ordering::Relaxed);
+            app.emit("download://file-complete", crate::api::types::DownloadFileComplete { file_index, total_files, file_name }).ok();
             return Ok(());
         }
 
-        agg_downloaded.fetch_sub(verified_local, Ordering::Relaxed);
         std::fs::remove_file(dest).ok();
+        progress.bytes.store(0, Ordering::Relaxed);
     } else if existing_size > 0 && existing_size < expected_size {
-        // Partial file from an interrupted download: hash what we already have
-        // so the final MD5 check still covers the whole file, then resume from
-        // that offset instead of re-downloading from scratch.
+        progress.verifying.store(true, Ordering::Relaxed);
         let dest_owned = dest.to_path_buf();
         let cancel2 = cancel_flag.clone();
-        let agg2 = agg_downloaded.clone();
-        let app2 = app.clone();
-        let fn2 = file_name.clone();
+        let prog2 = progress.clone();
 
         hasher = tokio::task::spawn_blocking(move || -> Result<Md5, AppError> {
             use std::io::Read;
             let mut file = std::fs::File::open(&dest_owned)?;
             let mut hasher = Md5::new();
             let mut buf = vec![0u8; 4 * 1024 * 1024];
-            let mut last_emit = std::time::Instant::now();
+            let mut verified_local = 0;
             loop {
                 if !cancel2.load(Ordering::SeqCst) {
                     return Err(AppError::Cancelled);
                 }
                 let n = file.read(&mut buf)?;
-                if n == 0 {
-                    break;
-                }
+                if n == 0 { break; }
                 hasher.update(&buf[..n]);
-                agg2.fetch_add(n as u64, Ordering::Relaxed);
-                if last_emit.elapsed().as_millis() >= 150 {
-                    let total_dl = agg2.load(Ordering::Relaxed);
-                    let elapsed = global_start.elapsed().as_secs_f64();
-                    let speed = if elapsed > 0.1 {
-                        (total_dl as f64 / elapsed) as u64
-                    } else {
-                        0
-                    };
-                    app2.emit(
-                        "download://verify-progress",
-                        DownloadProgress {
-                            file_index,
-                            total_files,
-                            file_name: fn2.clone(),
-                            bytes_downloaded: total_dl,
-                            bytes_total: agg_total,
-                            speed_bps: speed,
-                        },
-                    )
-                    .ok();
-                    last_emit = std::time::Instant::now();
-                }
+                verified_local += n as u64;
+                prog2.bytes.store(verified_local, Ordering::Relaxed);
             }
             Ok(hasher)
-        })
-        .await
-        .map_err(|e| AppError::Api(format!("resume hash task panicked: {}", e)))??;
+        }).await.map_err(|e| AppError::Api(format!("resume hash task panicked: {}", e)))??;
 
         resume_from = existing_size;
     }
@@ -184,6 +105,8 @@ pub async fn download_file(
     if let Some(parent) = dest.parent() {
         std::fs::create_dir_all(parent)?;
     }
+
+    progress.verifying.store(false, Ordering::Relaxed);
 
     let mut request = client.get(&pack.url);
     if resume_from > 0 {
@@ -198,10 +121,9 @@ pub async fn download_file(
             .await
             .map_err(AppError::Io)?
     } else {
-        // Either a fresh download or the server ignored our Range request and
-        // sent the whole file; in the latter case drop the resume state.
         if resume_from > 0 {
-            agg_downloaded.fetch_sub(resume_from, Ordering::Relaxed);
+            resume_from = 0;
+            progress.bytes.store(0, Ordering::Relaxed);
             hasher = Md5::new();
         }
         tokio::fs::File::create(dest).await.map_err(AppError::Io)?
@@ -209,10 +131,10 @@ pub async fn download_file(
 
     let mut stream = response.bytes_stream();
     let mut writer = BufWriter::with_capacity(4 * 1024 * 1024, file);
-    let mut last_emit = std::time::Instant::now();
 
     let mut rate_bytes: u64 = 0;
     let mut rate_start = Instant::now();
+    let mut current_bytes = resume_from;
 
     while let Some(chunk) = stream.next().await {
         if !cancel_flag.load(Ordering::SeqCst) {
@@ -223,9 +145,10 @@ pub async fn download_file(
         writer.write_all(&chunk).await.map_err(AppError::Io)?;
         hasher.update(&chunk);
 
+        current_bytes += chunk.len() as u64;
+        progress.bytes.store(current_bytes, Ordering::Relaxed);
+        
         let chunk_len = chunk.len() as u64;
-        agg_downloaded.fetch_add(chunk_len, Ordering::Relaxed);
-
         if speed_limit > 0 {
             rate_bytes += chunk_len;
             let expected = Duration::from_secs_f64(rate_bytes as f64 / speed_limit as f64);
@@ -238,35 +161,10 @@ pub async fn download_file(
                 rate_start = Instant::now();
             }
         }
-
-        if last_emit.elapsed().as_millis() >= 150 {
-            let total_dl = agg_downloaded.load(Ordering::Relaxed);
-            let elapsed = global_start.elapsed().as_secs_f64();
-            let speed = if elapsed > 0.1 {
-                (total_dl as f64 / elapsed) as u64
-            } else {
-                0
-            };
-
-            app.emit(
-                "download://progress",
-                DownloadProgress {
-                    file_index,
-                    total_files,
-                    file_name: file_name.clone(),
-                    bytes_downloaded: total_dl,
-                    bytes_total: agg_total,
-                    speed_bps: speed,
-                },
-            )
-            .ok();
-            last_emit = std::time::Instant::now();
-        }
     }
 
     writer.flush().await.map_err(AppError::Io)?;
 
-    // Verify MD5
     let actual_md5 = format!("{:x}", hasher.finalize());
     if actual_md5 != pack.md5 {
         return Err(AppError::Md5Mismatch {
@@ -274,6 +172,8 @@ pub async fn download_file(
             actual: actual_md5,
         });
     }
+
+    progress.bytes.store(expected_size, Ordering::Relaxed);
 
     app.emit(
         "download://file-complete",
