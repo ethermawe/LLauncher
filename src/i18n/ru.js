@@ -33,6 +33,7 @@ export default {
       extracting: 'Распаковка...',
       loading: 'Загрузка...',
       running: 'Игра запущена',
+      resume: 'Продолжить',
     },
     warning: {
       noProton: 'DWProton не настроен. Настройте его в Настройки > Proton.',
@@ -55,6 +56,11 @@ export default {
     verifyLabel: 'Проверка {current}/{total}: {name}',
     extractLabel: 'Распаковка архива...',
     pause: 'Пауза',
+    resume: 'Продолжить',
+    pausedLabel: 'На паузе',
+    pausedFile: 'На паузе — файл {current}/{total}',
+    resumeVerify: 'Проверка...',
+    resumeVerifyFile: 'Проверка файла {current}/{total}',
   },
   notify: {
     downloadComplete: 'Загрузка завершена — игра готова к запуску',

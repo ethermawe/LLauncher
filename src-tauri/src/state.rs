@@ -7,6 +7,7 @@ pub struct AppState {
     pub settings: tokio::sync::Mutex<AppSettings>,
     pub http_client: reqwest::Client,
     pub download_active: Arc<AtomicBool>,
+    pub download_paused: Arc<AtomicBool>,
     pub proton_download_active: Arc<AtomicBool>,
     pub game_running: Arc<AtomicBool>,
     /// PID of the spawned game process group leader, if running.
@@ -23,6 +24,7 @@ impl AppState {
                 .build()
                 .unwrap_or_else(|_| reqwest::Client::new()),
             download_active: Arc::new(AtomicBool::new(false)),
+            download_paused: Arc::new(AtomicBool::new(false)),
             proton_download_active: Arc::new(AtomicBool::new(false)),
             game_running: Arc::new(AtomicBool::new(false)),
             game_pid: Arc::new(std::sync::Mutex::new(None)),

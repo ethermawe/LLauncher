@@ -1,13 +1,21 @@
 import { useTranslation } from '../../i18n';
 import './ActionButton.css';
 
-export default function ActionButton({ gameState, downloading, extracting, verifying, running, onAction, disabled }) {
+export default function ActionButton({ gameState, downloading, paused, extracting, verifying, running, onAction, onResume, disabled }) {
   const { t } = useTranslation();
 
   if (running) {
     return (
       <button className="action-button action-button--downloading" disabled>
         {t('home.action.running')}
+      </button>
+    );
+  }
+
+  if (paused) {
+    return (
+      <button className="action-button action-button--paused" onClick={onResume}>
+        {t('home.action.resume')}
       </button>
     );
   }

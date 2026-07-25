@@ -33,6 +33,7 @@ export default {
       extracting: 'Extracting...',
       loading: 'Loading...',
       running: 'Running',
+      resume: 'Resume',
     },
     warning: {
       noProton: 'DWProton not configured. Set it up in Settings > Proton.',
@@ -55,6 +56,11 @@ export default {
     verifyLabel: 'Verifying {current}/{total}: {name}',
     extractLabel: 'Extracting archive...',
     pause: 'Pause',
+    resume: 'Resume',
+    pausedLabel: 'Paused',
+    pausedFile: 'Paused — file {current}/{total}',
+    resumeVerify: 'Verifying...',
+    resumeVerifyFile: 'Verifying file {current}/{total}',
   },
   notify: {
     downloadComplete: 'Download complete — the game is ready to play',

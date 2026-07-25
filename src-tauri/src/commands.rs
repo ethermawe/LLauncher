@@ -63,6 +63,7 @@ pub async fn start_download(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), AppError> {
+    state.download_paused.store(false, std::sync::atomic::Ordering::SeqCst);
     let settings = state.settings.lock().await;
     let download_dir = settings.download_dir.clone();
     let game_dir = settings.game_dir.clone();
@@ -98,10 +99,38 @@ pub async fn start_download(
 
 #[tauri::command]
 pub async fn cancel_download(state: State<'_, AppState>) -> Result<(), AppError> {
+    state.download_paused.store(false, std::sync::atomic::Ordering::SeqCst);
     state
         .download_active
         .store(false, std::sync::atomic::Ordering::SeqCst);
     Ok(())
+}
+
+/// Pause the current download: stop workers but keep partial files.
+/// Sets a paused flag so the UI knows to show "Resume" instead of "Install".
+#[tauri::command]
+pub async fn pause_download(state: State<'_, AppState>) -> Result<(), AppError> {
+    state.download_paused.store(true, std::sync::atomic::Ordering::SeqCst);
+    state.download_active.store(false, std::sync::atomic::Ordering::SeqCst);
+    Ok(())
+}
+
+/// Resume a paused download. This is the same as start_download but the
+/// frontend knows to call it after a pause. The download_paused flag is
+/// cleared by start_download / start_update when they set download_active.
+#[tauri::command]
+pub async fn resume_download(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), AppError> {
+    state.download_paused.store(false, std::sync::atomic::Ordering::SeqCst);
+    start_download(app, state).await
+}
+
+/// Check if download is paused (for frontend state recovery on reload).
+#[tauri::command]
+pub async fn is_download_paused(state: State<'_, AppState>) -> Result<bool, AppError> {
+    Ok(state.download_paused.load(std::sync::atomic::Ordering::SeqCst))
 }
 
 /// Discard a paused/cancelled download: stop it and delete the partial pack
@@ -195,6 +224,7 @@ pub async fn start_update(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), AppError> {
+    state.download_paused.store(false, std::sync::atomic::Ordering::SeqCst);
     let settings = state.settings.lock().await;
     let game_dir = settings.game_dir.clone();
     let download_dir = settings.download_dir.clone();

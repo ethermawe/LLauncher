@@ -2,7 +2,7 @@ import { formatSize, formatSpeed, formatEta } from '../../utils/format';
 import { useTranslation } from '../../i18n';
 import './ProgressBar.css';
 
-export default function ProgressBar({ progress, onPause, onCancel }) {
+export default function ProgressBar({ progress, paused, resuming, onPause, onResume, onCancel }) {
   const { t } = useTranslation();
   if (!progress) return null;
 
@@ -17,13 +17,16 @@ export default function ProgressBar({ progress, onPause, onCancel }) {
 
   const done = extracting ? progress.bytes_processed : progress.bytes_downloaded;
   const total = progress.bytes_total;
-  const eta = formatEta(total - done, progress.speed_bps);
+  const speed = paused ? 0 : progress.speed_bps;
+  const eta = formatEta(total - done, speed);
 
   const stageClass = extracting
     ? 'progress-bar--extracting'
     : verifying
       ? 'progress-bar--verifying'
-      : '';
+      : paused
+        ? 'progress-bar--paused'
+        : '';
 
   return (
     <div className={`progress-bar ${stageClass}`}>
@@ -39,8 +42,12 @@ export default function ProgressBar({ progress, onPause, onCancel }) {
           {' — '}{percent}%
         </span>
         <span>
-          {formatSpeed(progress.speed_bps)}
-          {eta ? ` — ${eta}` : ''}
+          {paused
+            ? t('progress.pausedLabel')
+            : resuming && verifying
+              ? t('progress.resumeVerify')
+              : formatSpeed(speed)}
+          {!paused && !(resuming && verifying) && eta ? ` — ${eta}` : ''}
         </span>
       </div>
       <div className="progress-bar__file">
@@ -50,22 +57,40 @@ export default function ProgressBar({ progress, onPause, onCancel }) {
           <>
             <span className="progress-bar__file-name">
               {verifying
-                ? t('progress.verifyLabel', {
-                    current: progress.file_index + 1,
-                    total: progress.total_files,
-                    name: progress.file_name,
-                  })
-                : t('progress.fileLabel', {
-                    current: progress.file_index + 1,
-                    total: progress.total_files,
-                    name: progress.file_name,
-                  })}
+                ? resuming
+                  ? t('progress.resumeVerifyFile', {
+                      current: progress.file_index + 1,
+                      total: progress.total_files,
+                    })
+                  : t('progress.verifyLabel', {
+                      current: progress.file_index + 1,
+                      total: progress.total_files,
+                      name: progress.file_name,
+                    })
+                : paused
+                  ? t('progress.pausedFile', {
+                      current: progress.file_index + 1,
+                      total: progress.total_files,
+                    })
+                  : t('progress.fileLabel', {
+                      current: progress.file_index + 1,
+                      total: progress.total_files,
+                      name: progress.file_name,
+                    })}
             </span>
             <div className="progress-bar__actions">
-              {onPause && (
-                <button className="progress-bar__pause" onClick={onPause}>
-                  {t('progress.pause')}
-                </button>
+              {paused ? (
+                onResume && (
+                  <button className="progress-bar__resume" onClick={onResume}>
+                    {t('progress.resume')}
+                  </button>
+                )
+              ) : (
+                onPause && (
+                  <button className="progress-bar__pause" onClick={onPause}>
+                    {t('progress.pause')}
+                  </button>
+                )
               )}
               {onCancel && (
                 <button className="progress-bar__cancel" onClick={onCancel}>

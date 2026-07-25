@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use tauri::Emitter;
 
-use crate::api::types::{DownloadComplete, DownloadError};
+use crate::api::types::{DownloadComplete, DownloadError, ResumeInfo};
 use crate::error::AppError;
 
 pub async fn start_download(
@@ -59,6 +59,21 @@ pub async fn start_download(
         .sum();
     let needed = total_size.saturating_sub(existing_parts);
     std::fs::create_dir_all(download_path)?;
+
+    // Tell the frontend how much data already exists on disk so it can show
+    // a distinct "verifying downloaded files" phase instead of making disk
+    // reads look like internet downloads.
+    if existing_parts > 0 {
+        app.emit(
+            "download://resuming",
+            ResumeInfo {
+                bytes_existing: existing_parts,
+                bytes_total: total_size,
+            },
+        )
+        .ok();
+    }
+
     if let Some(available) = crate::config::paths::available_space(download_path) {
         if available < needed {
             download_active.store(false, Ordering::SeqCst);

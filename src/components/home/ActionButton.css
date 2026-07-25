@@ -72,3 +72,19 @@
   transform: none;
   box-shadow: none;
 }
+
+.action-button--paused {
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  color: #fff;
+  animation: none;
+  cursor: pointer;
+}
+
+.action-button--paused::before {
+  animation: shimmer 3s ease-in-out infinite;
+}
+
+.action-button--paused:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 30px rgba(59, 130, 246, 0.4);
+}

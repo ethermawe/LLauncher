@@ -57,7 +57,7 @@ export default function HomePage({ content, settings, systemCheck, onOpenSetting
     }
   }, [refresh, t]);
 
-  const { downloading, progress, error: dlError, startDownload, startUpdate, pauseDownload, cancelDownload } =
+  const { downloading, paused, resuming, progress, error: dlError, startDownload, startUpdate, pauseDownload, resumeDownload, cancelDownload } =
     useDownload(onDownloadComplete);
 
   useEffect(() => {
@@ -133,18 +133,20 @@ export default function HomePage({ content, settings, systemCheck, onOpenSetting
         </div>
 
         <div className="home-page__action-area">
-          {downloading && progress && (
-            <ProgressBar progress={progress} onPause={pauseDownload} onCancel={cancelDownload} />
+          {(downloading || paused) && progress && (
+            <ProgressBar progress={progress} paused={paused} resuming={resuming} onPause={pauseDownload} onResume={resumeDownload} onCancel={cancelDownload} />
           )}
           {dlError && <div className="home-page__error">{dlError}</div>}
           {importError && <div className="home-page__error">{importError}</div>}
           <ActionButton
             gameState={gameState}
             downloading={downloading}
+            paused={paused}
             extracting={progress?.stage === 'extracting'}
             verifying={progress?.stage === 'verifying'}
             running={gameRunning}
             onAction={handleAction}
+            onResume={resumeDownload}
             disabled={gameLoading}
           />
           {gameRunning && (
@@ -152,7 +154,7 @@ export default function HomePage({ content, settings, systemCheck, onOpenSetting
               {t('home.stopGame')}
             </button>
           )}
-          {!downloading && !gameRunning && gameState?.status === 'not_installed' && (
+          {!downloading && !paused && !gameRunning && gameState?.status === 'not_installed' && (
             <button className="home-page__import-link" onClick={handleImport}>
               {t('home.importLink')}
             </button>

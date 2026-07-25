@@ -230,6 +230,12 @@ pub struct DownloadError {
     pub message: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ResumeInfo {
+    pub bytes_existing: u64,
+    pub bytes_total: u64,
+}
+
 // ─── Launch events ───
 
 #[derive(Debug, Clone, Serialize)]
