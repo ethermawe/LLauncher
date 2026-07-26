@@ -11,7 +11,7 @@ import useLaunchEvents from './hooks/useLaunchEvents';
 import { I18nProvider } from './i18n';
 
 export default function App() {
-  const { settings, saveSettings } = useSettings();
+  const { settings, saveSettings, refreshSettings } = useSettings();
   const { content } = useLauncherContent();
   const { systemCheck, refresh: refreshSystemCheck } = useSystemCheck();
   const { failure, dismiss: dismissFailure } = useLaunchEvents();
@@ -25,7 +25,10 @@ export default function App() {
           content={content}
           settings={settings}
           systemCheck={systemCheck}
-          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenSettings={async () => {
+            await refreshSettings();
+            setSettingsOpen(true);
+          }}
         />
         {settingsOpen && (
           <SettingsModal

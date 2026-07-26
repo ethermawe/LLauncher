@@ -5,12 +5,21 @@ export default function useSettings() {
   const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    invoke('get_settings')
-      .then(setSettings)
-      .catch(console.error)
-      .finally(() => setLoading(false));
+  const refreshSettings = useCallback(async () => {
+    setLoading(true);
+    try {
+      const s = await invoke('get_settings');
+      setSettings(s);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    refreshSettings();
+  }, [refreshSettings]);
 
   const saveSettings = useCallback(async (newSettings) => {
     try {
@@ -22,5 +31,5 @@ export default function useSettings() {
     }
   }, []);
 
-  return { settings, loading, saveSettings };
+  return { settings, loading, saveSettings, refreshSettings };
 }
